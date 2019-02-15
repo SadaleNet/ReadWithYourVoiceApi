@@ -10,6 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "express": "^4.16.4",
+    "recaptcha-verify": "^0.1.1",
     "uuid": "^3.3.2"
   }
 }
