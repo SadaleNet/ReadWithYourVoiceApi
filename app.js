@@ -5,6 +5,8 @@ const crypto = require('crypto')
 const bodyParser = require('body-parser')
 const app = express();
 const fs = require('fs');
+const os = require('os');
+const child_process = require('child_process');
 const path = require('path');
 const config = require('./private/config.json');
 
@@ -18,9 +20,59 @@ if(!("dataDir" in config)){
 	process.exit(1);
 }
 
-var recaptcha = new Recaptcha({
+const recaptcha = new Recaptcha({
     secret: config.captchaSecret
 });
+
+const recordableSentences = [
+	"o* kepeken* telo* moli* lon* ma* ali* ni* !",
+	"pipi* mute* li* pini* tawa* tomo* leko* mi* a* !",
+	"kon* sewi* li tawa wawa* e* ko* walo* .",
+	"mun* jelo* li pana* e suno* lon tenpo* pimeja* .",
+	"lupa* open* la* akesi* ike* li kama* nasa* .",
+	"kala* sina* li lon insa* poki* telo li mu* .",
+	"soweli* loje* li lukin* e kasi* suwi* .",
+	"jan* pona* li wile* ala* unpa* e waso* .",
+	"soweli luka* tu* li utala* tan* kili* .",
+	"jaki* li lon sinpin* anpa* mi la mi tawa weka* .",
+	"mi en* sina taso* li wile toki* .",
+	"jan lawa* li alasa* kepeken oko* ona* .",
+	"jan li noka* e nena* la ona li pilin* ike .",
+	"jan sama* wile awen* lape* lon supa* .",
+	"pata* mama* li ante* e moku* li namako* e ona .",
+	"esun* len* li jo* e kiwen* kule* mute .",
+	"kulupu* mani* sin* li pali* kepeken ilo* sona* .",
+	"nimi* apeja* en nimi kipisi* li pu* ala .",
+	"selo* pakala* nanpa* wan* li suli* kin* .",
+	"pan* sike* li lon poka* sijelo* mi .",
+	"ijo* monsi* li seli* anu* lete* ?",
+	"palisa* mije* li ken* kama linja* .",
+	"lipu* sitelen* pi* uta* meli* li lili* .",
+	"monsuta* laso* li olin* e seme* ?",
+	"mi kute* e kalama* musi* ale* lon nasin* .",
+	"a-* a_* e-* e_* i-* i_* o-* o_* u-* u_*",
+	"an-* an_* en-* en_* in-* in_* on-* on_* un-* un_*",
+	"pa-* pa_* pe-* pe_* pi-* pi_* po-* po_* pu-* pu_*",
+	"pan-* pan_* pen-* pen_* pin-* pin_* pon-* pon_* pun-* pun_*",
+	"ta-* ta_* te-* te_* ti-* ti_* to-* to_* tu-* tu_*",
+	"tan-* tan_* ten-* ten_* tin-* tin_* ton-* ton_* tun-* tun_*",
+	"ka-* ka_* ke-* ke_* ki-* ki_* ko-* ko_* ku-* ku_*",
+	"kan-* kan_* ken-* ken_* kin-* kin_* kon-* kon_* kun-* kun_*",
+	"sa-* sa_* se-* se_* si-* si_* so-* so_* su-* su_*",
+	"san-* san_* sen-* sen_* sin-* sin_* son-* son_* sun-* sun_*",
+	"ma-* ma_* me-* me_* mi-* mi_* mo-* mo_* mu-* mu_*",
+	"man-* man_* men-* men_* min-* min_* mon-* mon_* mun-* mun_*",
+	"na-* na_* ne-* ne_* ni-* ni_* no-* no_* nu-* nu_*",
+	"nan-* nan_* nen-* nen_* nin-* nin_* non-* non_* nun-* nun_*",
+	"la-* la_* le-* le_* li-* li_* lo-* lo_* lu-* lu_*",
+	"lan-* lan_* len-* len_* lin-* lin_* lon-* lon_* lun-* lun_*",
+	"wa-* wa_* we-* we_* wi-* wi_* wo-* wo_* wu-* wu_*",
+	"wan-* wan_* wen-* wen_* win-* win_* won-* won_* wun-* wun_*",
+	"ja-* ja_* je-* je_* ji-* ji_* jo-* jo_* ju-* ju_*",
+	"jan-* jan_* jen-* jen_* jin-* jin_* jon-* jon_* jun-* jun_*"
+];
+
+const MAX_VOICE_NAME_LENGTH = 128;
 
 app.use(function(req, res, next) {
 	res.header("Access-Control-Allow-Origin", "http://localhost:3000");
@@ -28,51 +80,266 @@ app.use(function(req, res, next) {
 	next();
 });
 
-var jsonParser = bodyParser.json();
+//Error handler
+app.use(function (err, req, res, next) {
+  console.error(err.stack)
+  res.status(500).send('Something broke!')
+});
+
+var jsonParser = bodyParser.json({limit: '500kb', extended: true});
 
 app.listen(3001, () => {
 	console.log("Server running!");
 });
 
-app.post("/api/kalama-sin", jsonParser, (request, response, next) => {
-	//Input sanitization
-	if(!("name" in request.body) || (typeof request.body.name != "string") || request.body.name.length<0 ||
-		!("stressedFrequency" in request.body) || (typeof request.body.stressedFrequency != "number") ||
-		!("unstressedFrequency" in request.body) || (typeof request.body.unstressedFrequency != "number") ||
-		!("durationValue" in request.body || (typeof request.body.durationValue != "number") || durationValue <= 0) ||
-		!("captchaToken" in request.body) || (typeof request.body.captchaToken != "string")
-	){
-        response.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
+//Handle static files.
+app.use(express.static(config.dataDir));
+
+function waitMultipleCommandsFactory(numberOfCommands, next){
+	let commandCompletionCount = 0;
+	let errorOccured = false;
+	return (error, stdout, stderr) => {
+		if(errorOccured)
+			return;
+		if(error){
+			errorOccured = true;
+			next(error);
+		}else if(++commandCompletionCount >= numberOfCommands){
+			next();
+		}
 	}
- 
-    recaptcha.checkResponse(request.body.captchaToken, function(captchaError, captchaResponse){
-		//Confirm that the captcha is a valid one.
-//TODO: uncomment!        if(captchaError || !captchaResponse.success){
-//TODO: uncomment!            response.status(400).json({errorMessage: "Captcha error!"});
-//TODO: uncomment!            return;
-//TODO: uncomment!        }
+}
 
-		let id = uuidV1();
-		let token = crypto.randomBytes(16).toString('hex');
-		
-		fs.mkdir(path.join(config.dataDir, id), { recursive: true }, (err) => {
-			if(err) throw err;
-			const metaData = {
-				name: request.body.name,
-				stressedFrequency: request.body.stressedFrequency,
-				unstressedFrequency: request.body.unstressedFrequency,
-				durationValue: request.body.durationValue,
-				token: token
-			};
-			fs.writeFile(
-				path.join(config.dataDir, id, "metadata.json"),
-				JSON.stringify(metaData),
-				(err) => {
-					if(err) throw err;
-					response.status(200).json({id: id, token: token});
-				});
+app.post("/api/kalama-sin", jsonParser,
+	function(req, res, next){
+		//Input sanitization
+		if(!("name" in req.body) || (typeof req.body.name != "string") || req.body.name.length<0  || req.body.name.length>=MAX_VOICE_NAME_LENGTH ||
+			!("stressedFrequency" in req.body) || (typeof req.body.stressedFrequency != "number") ||
+			!("unstressedFrequency" in req.body) || (typeof req.body.unstressedFrequency != "number") ||
+			!("durationValue" in req.body || (typeof req.body.durationValue != "number") || durationValue <= 0) ||
+			!("captchaToken" in req.body) || (typeof req.body.captchaToken != "string")
+		){
+			res.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
+		}else{
+			next();
+		}
+	},
+	function(req, res, next){
+		next(); //TODO: Remove this line to enable captcha
+		return; //TODO: Remove this line to enable captcha
+		recaptcha.checkResponse(req.body.captchaToken, function(captchaError, captchaResponse){
+			//Confirm that the captcha is a valid one.
+			if(captchaError || !captchaResponse.success){
+				res.status(400).json({errorMessage: "Captcha error!"})
+			}else{
+				next();
+			}
 		});
+	},
+	function(req, res, next){
+		res.locals.id = uuidV1();
+		res.locals.token = crypto.randomBytes(16).toString('hex');
+		next();
+	},
+	function(req, res, next){
+		fs.mkdir(path.join(config.dataDir, res.locals.id), { recursive: true }, next);
+	},
+	function(req, res, next){
+		const metaData = {
+			name: req.body.name,
+			stressedFrequency: req.body.stressedFrequency,
+			unstressedFrequency: req.body.unstressedFrequency,
+			durationValue: req.body.durationValue,
+		};
+		fs.writeFile(
+			path.join(config.dataDir, res.locals.id, "metadata.json"),
+			JSON.stringify(metaData),
+			next);
+	},
+	function(req, res, next){
+		fs.mkdir(path.join(config.privateDataDir, res.locals.id),
+			{ recursive: true },
+			next);
+	},
+	function(req, res, next){
+		const privateMetaData = {
+			token: res.locals.token,
+			sentences: recordableSentences.map((x, i) => { return {id: i, sentence: x, recorded: ""}; })
+		};
+		fs.writeFile(
+			path.join(config.privateDataDir, res.locals.id, "metadata.json"),
+			JSON.stringify(privateMetaData),
+			(err) => {
+				if(err) throw err;
+				res.status(200).json({id: res.locals.id, token: res.locals.token});
+			});
+	},
+	function(req, res, next){
+		res.status(200).json({id: res.locals.id, token: res.locals.token});
+	}
+);
 
-    });
+app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/get-private-metadata",
+	jsonParser,
+	function(req, res, next){
+		if(!("token" in req.body) || (typeof req.body.token != "string") || req.body.token.length<0)
+			res.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
+		else
+			next();
+	},
+	function(req, res, next){
+		res.locals.filePath = path.join(config.privateDataDir, req.params.voiceId, "metadata.json");
+		fs.access(res.locals.filePath, fs.constants.R_OK, next);
+	},
+	function(req, res, next){
+		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.data = content; next(err) });
+	},
+	function(req, res, next){
+		obj = JSON.parse(res.locals.data);
+		if(obj.token === req.body.token)
+			res.status(200).json(obj);
+		else
+			res.status(400).json({errorMessage: "Invalid token"});
+	}
+);
 
-});
+app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/send-audio",
+	jsonParser,
+	//Input validation
+	function(req, res, next){
+		if(
+		!("token" in req.body) || (typeof req.body.token != "string") || req.body.token.length<0 ||
+		!("sentenceId" in req.body) || (typeof req.body.sentenceId != "number") ||
+		!("audio" in req.body) || (typeof req.body.audio != "string") || req.body.audio.length<0
+		)
+			res.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
+		else
+			next();
+	},
+	//Reads private metadata and validate token
+	function(req, res, next){
+		res.locals.filePath = path.join(config.privateDataDir, req.params.voiceId, "metadata.json");
+		fs.access(res.locals.filePath, fs.constants.R_OK, next);
+	},
+	function(req, res, next){
+		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.privateMetadata = content; next(err) });
+	},
+	function(req, res, next){
+		res.locals.privateMetadataObj = JSON.parse(res.locals.privateMetadata);
+		if(res.locals.privateMetadataObj.token === req.body.token && req.body.sentenceId in res.locals.privateMetadataObj.sentences)
+			next();
+		else
+			res.status(400).json({errorMessage: "Invalid token or sentenceId"});
+	},
+	//Reads public metadata
+	function(req, res, next){
+		res.locals.filePath = path.join(config.dataDir, req.params.voiceId, "metadata.json");
+		fs.access(res.locals.filePath, fs.constants.R_OK, next);
+	},
+	function(req, res, next){
+		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.metadataObj = JSON.parse(content); next(err) });
+	},
+	//Saves the audio clip
+	function(req, res, next){
+		res.locals.audioFileName = `${req.body.sentenceId}-${crypto.randomBytes(16).toString('hex')}.ogg`
+		console.log(res.locals.audioFileName);
+		fs.writeFile(
+			path.join(config.privateDataDir, req.params.voiceId, res.locals.audioFileName),
+			Buffer.from(req.body.audio, 'base64'),
+			next);
+	},
+	//Create temporary directory as a sketchpad for audio clips processing
+	function(req, res, next){
+		fs.mkdtemp(
+			path.join(config.privateDataDir, req.params.voiceId, res.locals.audioFileName+"-"),
+			(err, content) => { res.locals.tempFolder = content; next(err) }
+		);
+	},
+	//Split the audio clip by using SoX
+	function(req, res, next){
+		const sentence = res.locals.privateMetadataObj.sentences[req.body.sentenceId].sentence
+		res.locals.words = sentence.replace(/[^A-Za-z\-_*]+/g, " ")
+						.split(' ')
+						.filter(word => word.length > 0);
+		res.locals.numCapturingWords = sentence.match(/[*]/g).length;
+		let currentTimeOffset = res.locals.metadataObj.durationValue*(8-1+1);
+
+		//Command completion handling function
+		const waitMultipleCommands = waitMultipleCommandsFactory(res.locals.numCapturingWords, next);
+		//Loop thru each relevant words and split it
+		for(let i=0; i<res.locals.words.length; i++){
+			let word = res.locals.words[i];
+			const numSyllable = word.match(/[aeiou]/gi).length;
+			if(word.endsWith('*')){
+				word = word.slice(0, -1);
+				child_process.exec("sox "
+					+path.join(config.privateDataDir, req.params.voiceId, res.locals.audioFileName)+" "
+					+path.join(res.locals.tempFolder, word+".ogg")+" "
+					+"trim "
+					+(currentTimeOffset/1000)+" "
+					+((res.locals.metadataObj.durationValue/1000)*(numSyllable+2))+" "
+					+"silence "
+					+"1 "
+					+"0.001 "
+					+"-40.0d " //Hardcoded threshold. It works well.
+					+"reverse "
+					+"silence "
+					+"1 "
+					+"0.001 "
+					+"-40.0d " //Hardcoded threshold. It works well.
+					+"reverse "
+					,
+					waitMultipleCommands
+				);
+			}
+
+			if(numSyllable <= 2)
+				currentTimeOffset += res.locals.metadataObj.durationValue *4
+			else
+				currentTimeOffset += res.locals.metadataObj.durationValue *6
+		}
+	},
+	//Ensure that all split words audio files exist
+	function(req, res, next){
+		const waitMultipleCommands = waitMultipleCommandsFactory(res.locals.numCapturingWords, next);
+
+		for(let i=0; i<res.locals.words.length; i++){
+			let word = res.locals.words[i];
+			if(word.endsWith('*')){
+				word = word.slice(0, -1);
+				fs.access(res.locals.filePath, fs.constants.R_OK, waitMultipleCommands);
+			}
+		}
+	},
+	//Move the files into the data directory
+	function(req, res, next){
+		const waitMultipleCommands = waitMultipleCommandsFactory(res.locals.numCapturingWords, next);
+
+		for(let i=0; i<res.locals.words.length; i++){
+			let word = res.locals.words[i];
+			if(word.endsWith('*')){
+				word = word.slice(0, -1);
+				fs.rename(
+					path.join(res.locals.tempFolder, word+".ogg"),
+					path.join(config.dataDir, req.params.voiceId, word+".ogg"),
+					waitMultipleCommands
+				);
+			}
+		}
+	},
+	//Remove the temporary directory
+	function(req, res, next){
+		fs.rmdir(path.join(res.locals.tempFolder), next);
+	},
+	//Update the private metadata
+	function(req, res, next){
+		res.locals.privateMetadataObj.sentences[req.body.sentenceId].recorded = res.locals.audioFileName;
+		fs.writeFile(
+			path.join(config.privateDataDir, req.params.voiceId, "metadata.json"),
+			JSON.stringify(res.locals.privateMetadataObj),
+			next);
+	},
+	function(req, res, next){
+		res.status(200).json(res.locals.privateMetadataObj);
+	}
+);
