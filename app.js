@@ -10,19 +10,14 @@ const child_process = require('child_process');
 const path = require('path');
 const config = require('./private/config.json');
 
-if(!("captchaSecret" in config)){
-	console.log("Error: 'captchaSecret' not found in config.json");
-	process.exit(1);
-}
-
 if(!("dataDir" in config)){
 	console.log("Error: 'dataDir' not found in config.json");
 	process.exit(1);
 }
 
-const recaptcha = new Recaptcha({
-    secret: config.captchaSecret
-});
+const recaptcha = ("captchaSecret" in config) ?
+	new Recaptcha({secret: config.captchaSecret}) :
+	null;
 
 const recordableSentences = [
 	"o* kepeken* telo* moli* lon* ma* ali* ni* !",
@@ -125,16 +120,18 @@ app.post("/api/kalama-sin", jsonParser,
 		}
 	},
 	function(req, res, next){
-		next(); //TODO: Remove this line to enable captcha
-		return; //TODO: Remove this line to enable captcha
-		recaptcha.checkResponse(req.body.captchaToken, function(captchaError, captchaResponse){
-			//Confirm that the captcha is a valid one.
-			if(captchaError || !captchaResponse.success){
-				res.status(400).json({errorMessage: "Captcha error!"})
-			}else{
-				next();
-			}
-		});
+		if(recaptcha === null){
+			next(); //Captcha isn't enabled. Bypassing.
+		}else{
+			recaptcha.checkResponse(req.body.captchaToken, function(captchaError, captchaResponse){
+				//Confirm that the captcha is a valid one.
+				if(captchaError || !captchaResponse.success){
+					res.status(400).json({errorMessage: "Captcha error!"})
+				}else{
+					next();
+				}
+			});
+		}
 	},
 	function(req, res, next){
 		res.locals.id = uuidV1();
