@@ -5,13 +5,12 @@ const crypto = require('crypto')
 const bodyParser = require('body-parser')
 const app = express();
 const fs = require('fs');
-const os = require('os');
 const child_process = require('child_process');
 const path = require('path');
 const config = require('./private/config.json');
 
 if(!("dataDir" in config)){
-	console.log("Error: 'dataDir' not found in config.json");
+	console.error("Error: 'dataDir' not found in config.json");
 	process.exit(1);
 }
 
@@ -24,24 +23,24 @@ const recordableSentences = [
 	"pipi* mute* li* pini* tawa* tomo* leko* mi* a* !",
 	"kon* sewi* li tawa wawa* e* ko* walo* .",
 	"mun* jelo* li pana* e suno* lon tenpo* pimeja* .",
-	"lupa* open* la* akesi* ike* li kama* nasa* .",
-	"kala* sina* li lon insa* poki* telo li mu* .",
+	"lupa* open* la* akesi* li nasa* .",
+	"kala* li lon insa* poki* li mu* .",
 	"soweli* loje* li lukin* e kasi* suwi* .",
 	"jan* pona* li wile* ala* unpa* e waso* .",
 	"soweli luka* tu* li utala* tan* kili* .",
-	"jaki* li lon sinpin* anpa* mi la mi tawa weka* .",
-	"mi en* sina taso* li wile toki* .",
-	"jan lawa* li alasa* kepeken oko* ona* .",
-	"jan li noka* e nena* la ona li pilin* ike .",
-	"jan sama* wile awen* lape* lon supa* .",
-	"pata* mama* li ante* e moku* li namako* e ona .",
-	"esun* len* li jo* e kiwen* kule* mute .",
+	"jaki* li lon sinpin* anpa* mi la mi weka* .",
+	"mi en* sina* taso* li toki* .",
+	"jan lawa* li alasa* kepeken oko* .",
+	"jan li noka* e nena* li pilin* ike* .",
+	"jan sama* li awen* lape* lon supa* .",
+	"pata* mama* li ante* e moku* li namako* e ona* .",
+	"esun* len* li jo* e kiwen* kule* .",
 	"kulupu* mani* sin* li pali* kepeken ilo* sona* .",
 	"nimi* apeja* en nimi kipisi* li pu* ala .",
 	"selo* pakala* nanpa* wan* li suli* kin* .",
 	"pan* sike* li lon poka* sijelo* mi .",
 	"ijo* monsi* li seli* anu* lete* ?",
-	"palisa* mije* li ken* kama linja* .",
+	"palisa* mije* li ken* kama* linja* .",
 	"lipu* sitelen* pi* uta* meli* li lili* .",
 	"monsuta* laso* li olin* e seme* ?",
 	"mi kute* e kalama* musi* ale* lon nasin* .",
@@ -77,8 +76,8 @@ app.use(function(req, res, next) {
 
 //Error handler
 app.use(function (err, req, res, next) {
-  console.error(err.stack)
-  res.status(500).send('Something broke!')
+	console.error(err.stack)
+	res.status(500).json({errorMessage: "Server error. ijo ike li kama lon ilo sona mi."})
 });
 
 var jsonParser = bodyParser.json({limit: '500kb', extended: true});
@@ -105,13 +104,40 @@ function waitMultipleCommandsFactory(numberOfCommands, next){
 	}
 }
 
+const readPrivateMetadataAndValidateToken = [
+	function(req, res, next){
+		res.locals.filePath = path.join(config.privateDataDir, req.params.voiceId, "metadata.json");
+		fs.access(res.locals.filePath, fs.constants.R_OK, next);
+	},
+	function(req, res, next){
+		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.privateMetadata = content; next(err) });
+	},
+	function(req, res, next){
+		res.locals.privateMetadataObj = JSON.parse(res.locals.privateMetadata);
+		if(res.locals.privateMetadataObj.token === req.body.token)
+			next();
+		else
+			res.status(400).json({errorMessage: "Invalid token"});
+	}
+];
+
+const readPublicMetadata = [
+	function(req, res, next){
+		res.locals.filePath = path.join(config.dataDir, req.params.voiceId, "metadata.json");
+		fs.access(res.locals.filePath, fs.constants.R_OK, next);
+	},
+	function(req, res, next){
+		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.metadataObj = JSON.parse(content); next(err) });
+	}
+];
+
 app.post("/api/kalama-sin", jsonParser,
 	function(req, res, next){
 		//Input sanitization
-		if(!("name" in req.body) || (typeof req.body.name != "string") || req.body.name.length<0  || req.body.name.length>=MAX_VOICE_NAME_LENGTH ||
+		if(!("name" in req.body) || (typeof req.body.name != "string") || req.body.name.length<0 || req.body.name.length>=MAX_VOICE_NAME_LENGTH ||
 			!("stressedFrequency" in req.body) || (typeof req.body.stressedFrequency != "number") ||
 			!("unstressedFrequency" in req.body) || (typeof req.body.unstressedFrequency != "number") ||
-			!("durationValue" in req.body || (typeof req.body.durationValue != "number") || durationValue <= 0) ||
+			!("durationValue" in req.body || (typeof req.body.durationValue != "number") || req.body.durationValue <= 0) ||
 			!("captchaToken" in req.body) || (typeof req.body.captchaToken != "string")
 		){
 			res.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
@@ -133,11 +159,13 @@ app.post("/api/kalama-sin", jsonParser,
 			});
 		}
 	},
+	//Generate uuid and token
 	function(req, res, next){
 		res.locals.id = uuidV1();
 		res.locals.token = crypto.randomBytes(16).toString('hex');
 		next();
 	},
+	//Write the publi metadata file
 	function(req, res, next){
 		fs.mkdir(path.join(config.dataDir, res.locals.id), { recursive: true }, next);
 	},
@@ -153,6 +181,7 @@ app.post("/api/kalama-sin", jsonParser,
 			JSON.stringify(metaData),
 			next);
 	},
+	//Write the privatem metadata file
 	function(req, res, next){
 		fs.mkdir(path.join(config.privateDataDir, res.locals.id),
 			{ recursive: true },
@@ -166,11 +195,9 @@ app.post("/api/kalama-sin", jsonParser,
 		fs.writeFile(
 			path.join(config.privateDataDir, res.locals.id, "metadata.json"),
 			JSON.stringify(privateMetaData),
-			(err) => {
-				if(err) throw err;
-				res.status(200).json({id: res.locals.id, token: res.locals.token});
-			});
+			next);
 	},
+	//Respond to the client
 	function(req, res, next){
 		res.status(200).json({id: res.locals.id, token: res.locals.token});
 	}
@@ -178,25 +205,9 @@ app.post("/api/kalama-sin", jsonParser,
 
 app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/get-private-metadata",
 	jsonParser,
+	readPrivateMetadataAndValidateToken,
 	function(req, res, next){
-		if(!("token" in req.body) || (typeof req.body.token != "string") || req.body.token.length<0)
-			res.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
-		else
-			next();
-	},
-	function(req, res, next){
-		res.locals.filePath = path.join(config.privateDataDir, req.params.voiceId, "metadata.json");
-		fs.access(res.locals.filePath, fs.constants.R_OK, next);
-	},
-	function(req, res, next){
-		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.data = content; next(err) });
-	},
-	function(req, res, next){
-		obj = JSON.parse(res.locals.data);
-		if(obj.token === req.body.token)
-			res.status(200).json(obj);
-		else
-			res.status(400).json({errorMessage: "Invalid token"});
+		res.status(200).json(res.locals.privateMetadataObj);
 	}
 );
 
@@ -214,32 +225,20 @@ app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 			next();
 	},
 	//Reads private metadata and validate token
+	readPrivateMetadataAndValidateToken,
+	//Validate sentenceId
 	function(req, res, next){
-		res.locals.filePath = path.join(config.privateDataDir, req.params.voiceId, "metadata.json");
-		fs.access(res.locals.filePath, fs.constants.R_OK, next);
-	},
-	function(req, res, next){
-		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.privateMetadata = content; next(err) });
-	},
-	function(req, res, next){
-		res.locals.privateMetadataObj = JSON.parse(res.locals.privateMetadata);
-		if(res.locals.privateMetadataObj.token === req.body.token && req.body.sentenceId in res.locals.privateMetadataObj.sentences)
+		if(req.body.sentenceId in res.locals.privateMetadataObj.sentences)
 			next();
 		else
-			res.status(400).json({errorMessage: "Invalid token or sentenceId"});
+			res.status(400).json({errorMessage: "Invalid sentenceId"});
 	},
 	//Reads public metadata
-	function(req, res, next){
-		res.locals.filePath = path.join(config.dataDir, req.params.voiceId, "metadata.json");
-		fs.access(res.locals.filePath, fs.constants.R_OK, next);
-	},
-	function(req, res, next){
-		fs.readFile(res.locals.filePath, 'utf8', (err, content) => { res.locals.metadataObj = JSON.parse(content); next(err) });
-	},
+	readPublicMetadata,
 	//Saves the audio clip
 	function(req, res, next){
 		res.locals.audioFileName = `${req.body.sentenceId}-${crypto.randomBytes(16).toString('hex')}.ogg`
-		console.log(res.locals.audioFileName);
+		console.log("Saved: "+res.locals.audioFileName);
 		fs.writeFile(
 			path.join(config.privateDataDir, req.params.voiceId, res.locals.audioFileName),
 			Buffer.from(req.body.audio, 'base64'),
@@ -338,5 +337,34 @@ app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 	},
 	function(req, res, next){
 		res.status(200).json(res.locals.privateMetadataObj);
+	}
+);
+
+app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/update-name",
+	jsonParser,
+	//Input validation
+	function(req, res, next){
+		if(
+		!("token" in req.body) || (typeof req.body.token != "string") || req.body.token.length<0 || req.body.name.length>=MAX_VOICE_NAME_LENGTH ||
+		!("name" in req.body) || (typeof req.body.name != "string") || req.body.name.length<0
+		)
+			res.status(400).json({errorMessage: "Error on user input. sina pana e ijo ike."});
+		else
+			next();
+	},
+	//Reads private metadata and validate token
+	readPrivateMetadataAndValidateToken,
+	//Read the public metadata
+	readPublicMetadata,
+	//Update the name in public metadata
+	function(req, res, next){
+		res.locals.metadataObj.name = req.body.name
+		fs.writeFile(
+			path.join(config.dataDir, req.params.voiceId, "metadata.json"),
+			JSON.stringify(res.locals.metadataObj),
+			next);
+	},
+	function(req, res, next){
+		res.status(200).json({});
 	}
 );

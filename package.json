@@ -12,5 +12,12 @@
     "express": "^4.16.4",
     "recaptcha-verify": "^0.1.1",
     "uuid": "^3.3.2"
+  },
+  "devDependencies": {
+    "eslint": "^5.14.1",
+    "eslint-config-strongloop": "^2.1.0"
+  },
+  "scripts": {
+    "lint": "eslint --ignore-path .gitignore ."
   }
 }
