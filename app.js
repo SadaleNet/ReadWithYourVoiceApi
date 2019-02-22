@@ -26,6 +26,12 @@ if(!("dataDir" in config)){
 	process.exit(1);
 }
 
+if(!("port" in config)){
+	console.error("Error: 'port' not found in config.json");
+	process.exit(1);
+}
+
+
 if(!("domain" in config)){
 	console.error("Error: 'domain' not found in config.json");
 	process.exit(1);
@@ -100,7 +106,7 @@ app.use(function (err, req, res, next) {
 
 var jsonParser = bodyParser.json({limit: '500kb', extended: true});
 
-app.listen(3001, () => {
+app.listen(config.port, () => {
 	console.log("Server running!");
 });
 
