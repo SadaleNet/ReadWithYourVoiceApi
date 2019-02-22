@@ -31,6 +31,9 @@ if(!("port" in config)){
 	process.exit(1);
 }
 
+if(!("threshold" in config)){
+	config.threshold = -40.0;
+}
 
 if(!("domain" in config)){
 	console.error("Error: 'domain' not found in config.json");
@@ -301,12 +304,12 @@ app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 					+"silence "
 					+"1 "
 					+"0.001 "
-					+"-40.0d " //Hardcoded threshold. It works well.
+					+config.threshold+"d "
 					+"reverse "
 					+"silence "
 					+"1 "
 					+"0.001 "
-					+"-40.0d " //Hardcoded threshold. It works well.
+					+config.threshold+"d "
 					+"reverse "
 					,
 					waitMultipleCommands
