@@ -14,6 +14,11 @@ if(!("dataDir" in config)){
 	process.exit(1);
 }
 
+if(!("domain" in config)){
+	console.error("Error: 'domain' not found in config.json");
+	process.exit(1);
+}
+
 const recaptcha = ("captchaSecret" in config) ?
 	new Recaptcha({secret: config.captchaSecret}) :
 	null;
@@ -68,8 +73,9 @@ const recordableSentences = [
 
 const MAX_VOICE_NAME_LENGTH = 128;
 
+//CORS handler
 app.use(function(req, res, next) {
-	res.header("Access-Control-Allow-Origin", "http://localhost:3000");
+	res.header("Access-Control-Allow-Origin", config.domain);
 	res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
 	next();
 });
