@@ -114,7 +114,7 @@ app.listen(config.port, () => {
 });
 
 //Handle static files.
-app.use(express.static(config.dataDir));
+app.use(express.static(config.dataDir, {acceptRanges: false}));
 
 function waitMultipleCommandsFactory(numberOfCommands, next){
 	let commandCompletionCount = 0;

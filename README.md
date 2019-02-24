@@ -16,7 +16,7 @@ The back-end of this website is a Node.js script developed with ExpressJS framew
 
 The configuration is available in private/config.json. The possible configuration parameters are shown below:
 
-`dataDir` (required) - Path to the public data directory. It contains the audio clips of each word and the public metadata of the voice, like the name of the voice. For example, it can be `./private/data`
+`dataDir` (required) - Path to the public data directory. It contains the audio clips of each word and the public metadata of the voice, like the name of the voice. For example, it can be `./private/data`. **If you're using an external server to serve the content of this directory, be sure to disable ranged HTTP request. Otherwise the audio files may only get partially loaded on the client side**
 
 `privateDataDir` (required) - Path to the private data directory. It contains the raw audio clips and the private metadata of the voice, like the token of the voice. For example, it can be `./private/data-private`
 
