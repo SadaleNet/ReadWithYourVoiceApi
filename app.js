@@ -32,7 +32,7 @@ if(!("port" in config)){
 }
 
 if(!("threshold" in config)){
-	config.threshold = -40.0;
+	config.threshold = -35.0;
 }
 
 if(!("domain" in config)){

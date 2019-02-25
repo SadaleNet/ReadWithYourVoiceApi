@@ -26,7 +26,7 @@ The configuration is available in private/config.json. The possible configuratio
 
 `captchaSecret` (optional) - the recaptcha secret key. If captcha isn't needed, `captchaSecret` should be removed from the configuration file.
 
-`threshold` (optional) - The silence threshold of audio clips. Defaults to `-40.0`. Any audio lower than this value would be regarded as silence and trimmed.
+`threshold` (optional) - The silence threshold of audio clips. Defaults to `-35.0`. Any audio lower than this value would be regarded as silence and trimmed.
 
 # Deployment
 
