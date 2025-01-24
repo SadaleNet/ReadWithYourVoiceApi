@@ -296,7 +296,7 @@ app.post("/api/:voiceId([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 			if(word.endsWith('*')){
 				word = word.slice(0, -1);
 				child_process.exec("sox "
-					+path.join(config.privateDataDir, req.params.voiceId, res.locals.audioFileName)+" "
+					+"\"|opusdec --force-wav "+path.join(config.privateDataDir, req.params.voiceId, res.locals.audioFileName)+" -\""+" "
 					+path.join(res.locals.tempFolder, word+".ogg")+" "
 					+"trim "
 					+(currentTimeOffset/1000)+" "
